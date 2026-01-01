@@ -48,7 +48,7 @@ prompt_pure_check_cmd_exec_time() {
 	integer elapsed
 	(( elapsed = EPOCHSECONDS - ${prompt_pure_cmd_timestamp:-$EPOCHSECONDS} ))
 	typeset -g prompt_pure_cmd_exec_time=
-	(( elapsed > ${PURE_CMD_MAX_EXEC_TIME:-5} )) && {
+	(( elapsed > ${PURE_CMD_MAX_EXEC_TIME:-10} )) && {
 		prompt_pure_human_time_to_var $elapsed "prompt_pure_cmd_exec_time"
 	}
 }
@@ -145,7 +145,7 @@ prompt_pure_preprompt_render() {
 	# Git branch and dirty status info.
 	typeset -gA prompt_pure_vcs_info
 	if [[ -n $prompt_pure_vcs_info[branch] ]]; then
-		preprompt_parts+=("%F{$git_color}"'${prompt_pure_vcs_info[branch]}'"%F{$git_dirty_color}"'${prompt_pure_git_dirty}%f')
+		preprompt_parts+=("%F{$git_color}"'(${prompt_pure_vcs_info[branch]}'"%F{$git_dirty_color}"'${prompt_pure_git_dirty})%f')
 	fi
 	# Git action (for example, merge).
 	if [[ -n $prompt_pure_vcs_info[action] ]]; then
@@ -161,7 +161,11 @@ prompt_pure_preprompt_render() {
 	fi
 
 	# Execution time.
-	[[ -n $prompt_pure_cmd_exec_time ]] && preprompt_parts+=('%F{$prompt_pure_colors[execution_time]}${prompt_pure_cmd_exec_time}%f')
+	(( ${PURE_EXEC_TIME_DISABLED:-1} )) || [[ -n $prompt_pure_cmd_exec_time ]] && preprompt_parts+=('%F{$prompt_pure_colors[execution_time]}${prompt_pure_cmd_exec_time}%f')
+
+	# Prompt symbol on the same line
+	local prompt_indicator='%(?.%F{$prompt_pure_colors[prompt:success]}.%F{$prompt_pure_colors[prompt:error]})${prompt_pure_state[prompt]}%f '
+	preprompt_parts+=("$prompt_indicator")
 
 	local cleaned_ps1=$PROMPT
 	local -H MATCH MBEGIN MEND
@@ -176,8 +180,6 @@ prompt_pure_preprompt_render() {
 	local -ah ps1
 	ps1=(
 		${(j. .)preprompt_parts}  # Join parts, space separated.
-		$prompt_newline           # Separate preprompt and prompt.
-		$cleaned_ps1
 	)
 
 	PROMPT="${(j..)ps1}"
@@ -201,7 +203,7 @@ prompt_pure_precmd() {
 	setopt localoptions noshwordsplit
 
 	# Check execution time and store it in a variable.
-	prompt_pure_check_cmd_exec_time
+	(( ${PURE_EXEC_TIME_DISABLED:-1} )) || prompt_pure_check_cmd_exec_time
 	unset prompt_pure_cmd_timestamp
 
 	# Shows the full path in the title.
@@ -469,7 +471,7 @@ prompt_pure_async_refresh() {
 	async_job "prompt_pure" prompt_pure_async_git_arrows
 
 	# Do not perform `git fetch` if it is disabled or in home folder.
-	if (( ${PURE_GIT_PULL:-1} )) && [[ $prompt_pure_vcs_info[top] != $HOME ]]; then
+	if (( ${PURE_GIT_PULL:-0} )) && [[ $prompt_pure_vcs_info[top] != $HOME ]]; then
 		zstyle -t :prompt:pure:git:fetch only_upstream
 		local only_upstream=$((? == 0))
 		async_job "prompt_pure" prompt_pure_async_git_fetch $only_upstream
@@ -826,21 +828,21 @@ prompt_pure_setup() {
 	# It was added in Zsh 5.3.
 	autoload -Uz +X add-zle-hook-widget 2>/dev/null
 
-	# Set the colors.
+	# Set the colors. Table: https://upload.wikimedia.org/wikipedia/commons/1/15/Xterm_256color_chart.svg
 	typeset -gA prompt_pure_colors_default prompt_pure_colors
 	prompt_pure_colors_default=(
 		execution_time       yellow
 		git:arrow            cyan
 		git:stash            cyan
-		git:branch           242
+		git:branch           27
 		git:branch:cached    red
 		git:action           yellow
-		git:dirty            218
+		git:dirty            27
 		host                 242
-		path                 blue
-		prompt:error         red
-		prompt:success       magenta
-		prompt:continuation  242
+		path                 252
+		prompt:error         252
+		prompt:success       252
+		prompt:continuation  252
 		suspended_jobs       red
 		user                 242
 		user:root            default
@@ -864,11 +866,8 @@ prompt_pure_setup() {
 	# If a virtualenv is activated, display it in grey.
 	PROMPT='%(12V.%F{$prompt_pure_colors[virtualenv]}%12v%f .)'
 
-	# Prompt turns red if the previous command didn't exit with 0.
-	local prompt_indicator='%(?.%F{$prompt_pure_colors[prompt:success]}.%F{$prompt_pure_colors[prompt:error]})${prompt_pure_state[prompt]}%f '
-	PROMPT+=$prompt_indicator
-
 	# Indicate continuation prompt by … and use a darker color for it.
+	local prompt_indicator='%(?.%F{$prompt_pure_colors[prompt:success]}.%F{$prompt_pure_colors[prompt:error]})${prompt_pure_state[prompt]}%f '
 	PROMPT2='%F{$prompt_pure_colors[prompt:continuation]}… %(1_.%_ .%_)%f'$prompt_indicator
 
 	# Store prompt expansion symbols for in-place expansion via (%). For
